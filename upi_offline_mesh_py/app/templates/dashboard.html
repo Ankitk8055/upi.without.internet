@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UPI Offline Mesh — Demo</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 20px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 15px;
+    margin: 0 0 14px 0;
+    color: var(--accent);
+    letter-spacing: 0.3px;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, select {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+  button {
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: #21262d;
+    color: var(--text);
+    border-radius: 6px;
+    padding: 9px 14px;
+    font-size: 13.5px;
+    margin: 6px 6px 0 0;
+    transition: background 0.15s;
+  }
+  button:hover { background: #30363d; }
+  button.primary { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.SETTLED { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.DUPLICATE_DROPPED { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .badge.INVALID, .badge.REJECTED { background: rgba(248,81,73,0.15); color: var(--red); }
+  .devices { display: flex; flex-wrap: wrap; gap: 10px; }
+  .device {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: 120px;
+    background: #0d1117;
+  }
+  .device .id { font-weight: 600; font-size: 13px; }
+  .device .meta { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .device.bridge { border-color: var(--accent); }
+  pre#log {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    height: 160px;
+    overflow-y: auto;
+    font-size: 11.5px;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+  .steps { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<h1>🔌 UPI Offline Mesh — Demo</h1>
+<div class="subtitle">Offline payment routed through a Bluetooth-style gossip mesh, settled by this backend.</div>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>Step 1 — Compose a payment</h2>
+      <label>Sender</label>
+      <select id="senderId">
+        <option value="alice">alice</option>
+        <option value="bob">bob</option>
+        <option value="carol">carol</option>
+      </select>
+      <label>Receiver</label>
+      <select id="receiverId">
+        <option value="bob">bob</option>
+        <option value="alice">alice</option>
+        <option value="carol">carol</option>
+        <option value="dave">dave</option>
+      </select>
+      <label>Amount (₹)</label>
+      <input id="amountRupees" type="number" value="500">
+      <label>PIN</label>
+      <input id="pin" type="password" value="1234">
+      <div>
+        <button class="primary" onclick="injectPacket()">📤 Inject into Mesh</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Step 2 &amp; 3 — Gossip and Bridge Upload</h2>
+      <div class="steps">
+        Run gossip a couple of times so every device hears the packet, then flush the bridge(s) to settle it against the backend.
+      </div>
+      <div>
+        <button onclick="gossipRound()">🔄 Run Gossip Round</button>
+        <button onclick="flushBridges()">📡 Bridges Upload to Backend</button>
+        <button onclick="resetMesh()">♻️ Reset Mesh</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Mesh State</h2>
+      <div class="devices" id="devices"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Activity Log</h2>
+      <pre id="log"></pre>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Account Balances</h2>
+      <table id="accountsTable">
+        <thead><tr><th>Account</th><th>Owner</th><th>Balance</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Transaction Ledger</h2>
+      <table id="txTable">
+        <thead><tr><th>#</th><th>From → To</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Server RSA Public Key</h2>
+      <div class="steps" id="serverKey" style="word-break: break-all;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const logEl = document.getElementById('log');
+function log(msg) {
+  const time = new Date().toLocaleTimeString();
+  logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  return data;
+}
+
+async function refreshAll() {
+  const [accounts, txs, mesh] = await Promise.all([
+    api('/api/accounts'),
+    api('/api/transactions'),
+    api('/api/mesh/state'),
+  ]);
+  renderAccounts(accounts);
+  renderTransactions(txs);
+  renderDevices(mesh);
+}
+
+function renderAccounts(accounts) {
+  const tbody = document.querySelector('#accountsTable tbody');
+  tbody.innerHTML = accounts.map(a =>
+    `<tr><td>${a.accountId}</td><td>${a.ownerName}</td><td>₹${a.balanceRupees.toFixed(2)}</td></tr>`
+  ).join('');
+}
+
+function renderTransactions(txs) {
+  const tbody = document.querySelector('#txTable tbody');
+  tbody.innerHTML = txs.map(t =>
+    `<tr>
+       <td>${t.id}</td>
+       <td>${t.senderId} → ${t.receiverId}</td>
+       <td>₹${t.amountRupees.toFixed(2)}</td>
+       <td><span class="badge ${t.status}">${t.status}</span></td>
+     </tr>`
+  ).join('');
+}
+
+function renderDevices(mesh) {
+  const el = document.getElementById('devices');
+  el.innerHTML = Object.entries(mesh).map(([deviceId, d]) => `
+    <div class="device ${d.hasInternet ? 'bridge' : ''}">
+      <div class="id">${deviceId}${d.hasInternet ? ' 📶' : ''}</div>
+      <div class="meta">${d.packetCount} packet(s)</div>
+    </div>
+  `).join('');
+}
+
+async function injectPacket() {
+  const body = {
+    senderId: document.getElementById('senderId').value,
+    receiverId: document.getElementById('receiverId').value,
+    amountRupees: parseFloat(document.getElementById('amountRupees').value),
+    pin: document.getElementById('pin').value,
+  };
+  const result = await api('/api/demo/send', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  log(`Injected packet ${result.packetId.slice(0,8)}… into phone-alice`);
+  await refreshAll();
+}
+
+async function gossipRound() {
+  const result = await api('/api/mesh/gossip', { method: 'POST' });
+  log(`Gossip round complete — ${result.newDeliveries} new deliveries`);
+  await refreshAll();
+}
+
+async function flushBridges() {
+  const result = await api('/api/mesh/flush', { method: 'POST' });
+  if (result.results.length === 0) {
+    log('No bridge currently holds a packet.');
+  }
+  result.results.forEach(r => {
+    log(`${r.bridgeDeviceId} uploaded ${r.packetId.slice(0,8)}… → ${r.outcome}${r.reason ? ' ('+r.reason+')' : ''}`);
+  });
+  await refreshAll();
+}
+
+async function resetMesh() {
+  await api('/api/mesh/reset', { method: 'POST' });
+  log('Mesh, ledger, and idempotency cache reset.');
+  await refreshAll();
+}
+
+async function loadServerKey() {
+  const { publicKeyBase64 } = await api('/api/server-key');
+  document.getElementById('serverKey').textContent = publicKeyBase64.slice(0, 120) + '…';
+}
+
+refreshAll();
+loadServerKey();
+</script>
+</body>
+</html>
