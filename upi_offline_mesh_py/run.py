@@ -7,7 +7,7 @@ Usage:
     python run.py
 Then open http://localhost:8080
 """
- 
+
 from app import create_app
 
 app = create_app()
